@@ -527,7 +527,7 @@ function renderDashboard() {
     totalBigGaps += day.big_gaps;
     if (day.avg_idle_pct !== null) { sumIdle += day.avg_idle_pct; nIdle++; }
   });
-  const totalWorkdayHours = days.reduce((s, d) => s + (D.days[d].workday_hours || 0), 0);
+  const totalWorkdayHours = days.reduce((s, d) => s + (D.days[d].workday_hours || 0), 0) * PRINTERS.length;
   const totalIdleHours = Math.max(0, totalWorkdayHours - (totalActive / 3600));
   const avgIdle = nIdle > 0 ? (sumIdle / nIdle) : 0;
   const sqftPerHour = totalActive > 0 ? (totalSqft / (totalActive / 3600)) : 0;
