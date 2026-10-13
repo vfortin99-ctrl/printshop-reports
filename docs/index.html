@@ -229,7 +229,7 @@ table.jobs .pname { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   </div>
   <h2>Daily breakdown</h2>
   <table class="compact" id="dash-table">
-    <thead><tr><th>Date</th><th class="num">Jobs</th><th class="num">Active hours</th><th class="num">Big gaps (≥30m)</th><th class="num">Avg idle %</th></tr></thead>
+    <thead><tr><th>Date</th><th class="num">Jobs</th><th class="num">Sq ft</th><th class="num">Sq ft / hr</th><th class="num">Active hours</th><th class="num">Big gaps (≥30m)</th><th class="num">Avg idle %</th></tr></thead>
     <tbody></tbody>
   </table>
 </div>
@@ -249,20 +249,26 @@ table.jobs .pname { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       <option value="daily">Daily</option>
       <option value="weekly">Weekly avg</option>
     </select>
+    <div class="sep"></div>
+    <label>Unit:</label>
+    <select id="tp-unit">
+      <option value="jobs">Jobs / hr</option>
+      <option value="sqft">Sq ft / hr</option>
+    </select>
   </div>
   <div style="background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:16px;">
     <svg id="tp-chart" style="width:100%; height:380px;"></svg>
   </div>
   <h2>Per-printer summary</h2>
   <table class="compact" id="tp-table">
-    <thead><tr><th>Printer</th><th class="num">Total jobs</th><th class="num">Total active hours</th><th class="num">Throughput (jobs/hr)</th><th class="num">Median job duration</th></tr></thead>
+    <thead><tr><th>Printer</th><th class="num">Total jobs</th><th class="num">Total sq ft</th><th class="num">Total active hours</th><th class="num">Jobs/hr</th><th class="num">Sq ft/hr</th><th class="num">Median duration</th></tr></thead>
     <tbody></tbody>
   </table>
 </div>
 
 <!-- TAB 3: HEATMAP -->
 <div class="tabpanel" id="tab-heatmap">
-  <p class="sub">Average idle % per day-of-week, per printer. Lower is better (less idle). 0% = printer was busy the entire 8–5 window.</p>
+  <p class="sub">Average idle % per day-of-week, per printer. Lower is better (less idle). 0% = printer was busy the entire workday.</p>
   <div class="heatmap">
     <div class="heatmap-grid" id="heatmap-idle"></div>
     <div class="heatmap-legend">
@@ -275,6 +281,10 @@ table.jobs .pname { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   <div class="heatmap">
     <div class="heatmap-grid" id="heatmap-jobs"></div>
   </div>
+  <h2>Sq ft per weekday (per printer)</h2>
+  <div class="heatmap">
+    <div class="heatmap-grid" id="heatmap-sqft"></div>
+  </div>
 </div>
 
 <!-- TAB 4: BOTTLENECK -->
@@ -282,6 +292,8 @@ table.jobs .pname { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   <p class="sub">Which printer is the constraint? High throughput + low idle = working hard. High median duration = slower jobs.</p>
   <h2>Throughput (jobs per active hour)</h2>
   <div id="bn-throughput"></div>
+  <h2>Throughput (sq ft per active hour)</h2>
+  <div id="bn-sqft"></div>
   <h2>Days at 0% idle (fully busy)</h2>
   <div id="bn-zero-idle"></div>
   <h2>Big gaps (≥ 30 min) per printer</h2>
@@ -408,6 +420,7 @@ table.jobs .pname { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
         <thead><tr>
           <th>#</th><th>Job</th><th>Order</th>
           <th>Scan in</th><th>Scan out</th><th>Duration</th>
+          <th>Sq ft</th>
           <th>Gap from previous</th>
         </tr></thead>
         <tbody id="modal-tbody"></tbody>
@@ -492,7 +505,7 @@ function loadScript(src, cb) {
 }
 
 // ---------- META ----------
-document.getElementById('meta').textContent = `${D.first_day} → ${D.last_day} · 8am–5pm workday · ${D.total_open_days} open days`;
+document.getElementById('meta').textContent = `${D.first_day} → ${D.last_day} · Mon–Thu 8–5 · Fri 8–12 · ${D.total_open_days} open days · ${D.total_sq_ft.toLocaleString(undefined, {maximumFractionDigits: 0})} sq ft total`;
 
 // ====================================================================
 // TAB 1: DASHBOARD
@@ -505,27 +518,36 @@ function renderDashboard() {
   const label = dashRange === 'all' ? 'all time' : `last ${dashRange} days`;
   document.getElementById('dash-range-label').textContent = `Showing ${days.length} day${days.length === 1 ? '' : 's'} (${label})`;
   
-  let totalJobs = 0, totalActive = 0, totalBigGaps = 0, sumIdle = 0, nIdle = 0;
+  let totalJobs = 0, totalActive = 0, totalSqft = 0, totalBigGaps = 0, sumIdle = 0, nIdle = 0;
   days.forEach(d => {
     const day = D.days[d];
     totalJobs += day.jobs;
     totalActive += day.active_sec;
+    totalSqft += day.sq_ft || 0;
     totalBigGaps += day.big_gaps;
     if (day.avg_idle_pct !== null) { sumIdle += day.avg_idle_pct; nIdle++; }
   });
-  const totalIdleHours = (days.length * 9 * PRINTERS.length) - (totalActive / 3600);
+  const totalWorkdayHours = days.reduce((s, d) => s + (D.days[d].workday_hours || 0), 0);
+  const totalIdleHours = Math.max(0, totalWorkdayHours - (totalActive / 3600));
   const avgIdle = nIdle > 0 ? (sumIdle / nIdle) : 0;
-  
+  const sqftPerHour = totalActive > 0 ? (totalSqft / (totalActive / 3600)) : 0;
+
   // Comparison to prior period of same length
   const priorDays = computePriorPeriod(days);
-  let priorJobs = 0;
+  let priorJobs = 0, priorSqft = 0;
   if (priorDays) {
-    priorDays.forEach(d => { priorJobs += D.days[d].jobs; });
+    priorDays.forEach(d => {
+      priorJobs += D.days[d].jobs;
+      priorSqft += D.days[d].sq_ft || 0;
+    });
   }
   const jobsDelta = priorJobs > 0 ? ((totalJobs - priorJobs) / priorJobs * 100) : 0;
-  
+  const sqftDelta = priorSqft > 0 ? ((totalSqft - priorSqft) / priorSqft * 100) : 0;
+
   document.getElementById('dash-cards').innerHTML = `
     <div class="card"><div class="k">Total jobs</div><div class="v">${totalJobs.toLocaleString()}</div>${priorJobs ? `<div class="delta ${jobsDelta >= 0 ? 'up' : 'down'}">${jobsDelta >= 0 ? '↑' : '↓'} ${Math.abs(jobsDelta).toFixed(0)}% vs prior ${days.length} days</div>` : ''}</div>
+    <div class="card"><div class="k">Total sq ft</div><div class="v">${totalSqft.toLocaleString(undefined, {maximumFractionDigits: 0})}</div>${priorSqft ? `<div class="delta ${sqftDelta >= 0 ? 'up' : 'down'}">${sqftDelta >= 0 ? '↑' : '↓'} ${Math.abs(sqftDelta).toFixed(0)}% vs prior ${days.length} days</div>` : ''}</div>
+    <div class="card"><div class="k">Avg sq ft / hr</div><div class="v">${sqftPerHour.toFixed(0)}</div></div>
     <div class="card"><div class="k">Avg jobs/day</div><div class="v">${(totalJobs / days.length).toFixed(0)}</div></div>
     <div class="card"><div class="k">Active hours</div><div class="v">${(totalActive/3600).toFixed(0)}h</div></div>
     <div class="card"><div class="k">Idle hours</div><div class="v">${Math.max(0, totalIdleHours).toFixed(0)}h</div></div>
@@ -542,10 +564,13 @@ function renderDashboard() {
   const sortedDays = days.slice().sort((a,b) => b.localeCompare(a)).slice(0, 60);
   sortedDays.forEach(d => {
     const day = D.days[d];
+    const sqftHr = day.active_sec > 0 ? (day.sq_ft / (day.active_sec / 3600)) : 0;
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${fmtDate(d)}</td>
       <td class="num">${day.jobs}</td>
+      <td class="num">${(day.sq_ft || 0).toFixed(0)}</td>
+      <td class="num">${sqftHr.toFixed(0)}</td>
       <td class="num">${day.active_hours.toFixed(1)}h</td>
       <td class="num">${day.big_gaps}</td>
       <td class="num">${day.avg_idle_pct !== null ? day.avg_idle_pct + '%' : '—'}</td>
@@ -627,21 +652,25 @@ function renderSparkline(days) {
 // ====================================================================
 let tpRange = 'all';
 let tpMode = 'daily';
+let tpUnit = 'jobs';
 document.getElementById('tp-range').addEventListener('change', e => { tpRange = e.target.value; renderThroughput(); });
 document.getElementById('tp-mode').addEventListener('change', e => { tpMode = e.target.value; renderThroughput(); });
+document.getElementById('tp-unit').addEventListener('change', e => { tpUnit = e.target.value; renderThroughput(); });
 
 function renderThroughput() {
   const days = getFilteredDays(tpRange);
   
-  // Build throughput per printer per day
-  // data: {date, p1_thr, p2_thr, p3_thr}
+  // Build throughput per printer per day, depending on unit
   const series = days.map(d => {
     const day = D.days[d];
     const row = { date: d };
     PRINTERS.forEach(p => {
       const s = day.printers[p];
       if (s.active_sec > 0 && s.jobs > 0) {
-        row[p] = s.jobs / (s.active_sec / 3600);
+        const hours = s.active_sec / 3600;
+        row[p] = tpUnit === 'sqft'
+          ? (s.sq_ft || 0) / hours
+          : s.jobs / hours;
       } else {
         row[p] = null;
       }
@@ -681,19 +710,23 @@ function renderThroughput() {
   PRINTERS.forEach(p => {
     const s = D.per_printer_overall[p];
     // Filter to range
-    let totalJobs = 0, totalActive = 0;
+    let totalJobs = 0, totalActive = 0, totalSqft = 0;
     days.forEach(d => {
       const ds = D.days[d].printers[p];
       totalJobs += ds.jobs;
       totalActive += ds.active_sec;
+      totalSqft += ds.sq_ft || 0;
     });
     const thr = totalActive > 0 ? totalJobs / (totalActive / 3600) : 0;
+    const sqftHr = totalActive > 0 ? totalSqft / (totalActive / 3600) : 0;
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td><b>${SHORT[p]}</b></td>
       <td class="num">${totalJobs.toLocaleString()}</td>
+      <td class="num">${totalSqft.toFixed(0)}</td>
       <td class="num">${(totalActive/3600).toFixed(0)}h</td>
       <td class="num">${thr.toFixed(2)}</td>
+      <td class="num">${sqftHr.toFixed(0)}</td>
       <td class="num">${fmtGap(s.median_duration_sec)}</td>
     `;
     tbody.appendChild(tr);
@@ -717,6 +750,13 @@ function renderLineChart(data, series, svgId) {
   if (max === 0) max = 1;
   max = Math.ceil(max * 1.1);
   
+  // Y axis label
+  const yLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  yLabel.setAttribute('x', 4); yLabel.setAttribute('y', 14);
+  yLabel.setAttribute('fill', 'var(--muted)'); yLabel.setAttribute('font-size', '10');
+  yLabel.textContent = tpUnit === 'sqft' ? 'sq ft/hr' : 'jobs/hr';
+  svg.appendChild(yLabel);
+
   // Y axis
   for (let i = 0; i <= 5; i++) {
     const y = PADT + (i / 5) * (H - PADT - PADB);
@@ -834,6 +874,39 @@ function renderHeatmap() {
       grid2.appendChild(cell);
     }
   });
+
+  // Sq ft heatmap (use sqft_per_hour from weekday_data)
+  const grid3 = document.getElementById('heatmap-sqft');
+  grid3.innerHTML = '';
+  grid3.appendChild(makeHeatCell('h', '', ''));
+  for (let w = 0; w < 7; w++) {
+    grid3.appendChild(makeHeatCell('h', '', D.weekday_names[w]));
+  }
+  // Need sqft per weekday - compute from events
+  const wdSqft = {};
+  for (let w = 0; w < 7; w++) {
+    wdSqft[w] = {};
+    PRINTERS.forEach(p => { wdSqft[w][p] = 0; });
+  }
+  // Use weekday_data's sqft_per_hour * active_hours as estimate, but really we need raw
+  // Actually let's compute raw from scratch using the data we have
+  // For simplicity, use the sqft_per_hour * active_hours (which is just total_sqft)
+  // But weekday_data doesn't have total_sqft per weekday. Let me compute it.
+  // Use the bundle data: iterate over all days, sum sqft by (weekday, printer)
+  // Actually we have sqft_per_hour and active_hours. Total = sqft_per_hour * active_hours
+  PRINTERS.forEach(p => {
+    grid3.appendChild(makeHeatCell('rowlabel', SHORT[p]));
+    for (let w = 0; w < 7; w++) {
+      const data = idles[String(w)][p];
+      const sqftHr = data.sqft_per_hour || 0;
+      const maxSqftHr = Math.max(...PRINTERS.flatMap(pp => [0, ...[0,1,2,3,4,5,6].map(w => idles[String(w)][pp].sqft_per_hour || 0)]), 1);
+      const intensity = sqftHr / maxSqftHr;
+      const bg = data.n_days > 0 ? `rgba(210,153,34,${0.1 + intensity * 0.7})` : 'transparent';
+      const cell = makeHeatCell('cell', '', data.n_days > 0 ? Math.round(sqftHr) : '—', {background: bg});
+      cell.title = `${SHORT[p]} · ${D.weekday_names[w]} · ${Math.round(sqftHr)} sq ft/hr over ${data.n_days} days`;
+      grid3.appendChild(cell);
+    }
+  });
 }
 function makeHeatCell(cls, label, text, style) {
   const div = document.createElement('div');
@@ -867,6 +940,15 @@ function renderBottleneck() {
     display: d.s.throughput_per_hour.toFixed(2) + ' jobs/hr',
     max: maxThr,
     color: d.s.throughput_per_hour === maxThr ? 'green' : '',
+  })));
+
+  const maxSqft = Math.max(...data.map(d => d.s.sqft_per_hour), 1);
+  document.getElementById('bn-sqft').innerHTML = bottleneckBars(data.map(d => ({
+    label: SHORT[d.p],
+    value: d.s.sqft_per_hour,
+    display: `${d.s.sqft_per_hour.toFixed(0)} sq ft/hr (${d.s.total_sq_ft.toLocaleString(undefined, {maximumFractionDigits: 0})} total)`,
+    max: maxSqft,
+    color: d.s.sqft_per_hour === maxSqft ? 'green' : '',
   })));
   
   // Days at zero idle
@@ -1218,8 +1300,9 @@ function renderOrder(orderNum, events) {
   
   const div = document.createElement('div');
   div.className = 'order-result';
+  const totalSqft = events.reduce((s, e) => s + (e.sq_ft || 0), 0);
   div.innerHTML = `
-    <div class="order-num">Order #${orderNum}</div>
+    <div class="order-num">Order #${orderNum} <span class="sub" style="font-weight:normal">${totalSqft > 0 ? '· ' + totalSqft.toFixed(1) + ' sq ft' : ''}</span></div>
     <div class="meta">${events.length} job${events.length === 1 ? '' : 's'} across [${printers}] · total ${fmtGap(totalDuration)} print time · span ${span.toFixed(1)}h ${hasReprint ? ' · <span style="color:var(--bad)">has reprints</span>' : ''}</div>
     <div class="jobs-list">
       ${sortedEvs.map(e => `
@@ -1227,8 +1310,8 @@ function renderOrder(orderNum, events) {
           <span>${fmtTime(e.scan_in)}–${fmtTime(e.scan_out)}</span>
           <span>${e.printer_short} · <span class="pname">${e.job}</span>${e.is_reprint ? ' <span class="badge rep">reprint</span>' : ''}</span>
           <span class="num">${fmtGap(e.duration_sec)}</span>
-          <span class="num">${e.gap_to_prev_sec !== null ? (e.gap_crosses_day ? `<span style="color:var(--warn)">${fmtGap(e.gap_to_prev_sec)} (crosses day)</span>` : `<span class="gap">${fmtGap(e.gap_to_prev_sec)}</span>`) : '—'}</span>
-          <span>${e.scan_in.slice(0,10)}</span>
+          <span class="num">${(e.sq_ft || 0).toFixed(2)} sq ft</span>
+          <span>${e.gap_to_prev_sec !== null ? (e.gap_crosses_day ? `<span style="color:var(--warn)">${fmtGap(e.gap_to_prev_sec)} (crosses day)</span>` : `<span class="gap">${fmtGap(e.gap_to_prev_sec)}</span>`) : '—'}</span>
         </div>
       `).join('')}
     </div>
@@ -1338,9 +1421,10 @@ function renderDays() {
           const maxBadge = s.max_gap > 0
             ? `<div class="max-gap-line">max gap: <span class="gap-badge ${maxCls}">${fmtGap(s.max_gap)}</span></div>`
             : '';
+          const sqftStr = s.sq_ft > 0 ? `${Math.round(s.sq_ft)} sq ft` : '';
           cell.innerHTML = `
             <div class="top"><span class="name">${SHORT[p]}</span><span class="jobs">${s.jobs} job${s.jobs===1?'':'s'}</span></div>
-            <div class="stats"><b>${s.idle_pct.toFixed(0)}%</b> idle · median <b>${fmtGap(s.median_gap)}</b><br><span style="font-size:11px">${fmtTime(s.first_in)}–${fmtTime(s.last_out)}</span></div>
+            <div class="stats"><b>${s.idle_pct.toFixed(0)}%</b> idle · median <b>${fmtGap(s.median_gap)}</b>${sqftStr ? ' · <b>' + sqftStr + '</b>' : ''}<br><span style="font-size:11px">${fmtTime(s.first_in)}–${fmtTime(s.last_out)}</span></div>
             ${maxBadge}
           `;
           cell.addEventListener('click', () => openModal(dateStr, p));
@@ -1392,7 +1476,7 @@ async function openModal(date, printer) {
   
   const tbody = document.getElementById('modal-tbody');
   if (dayEvents.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:20px; color:var(--muted)">No jobs on this day.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:20px; color:var(--muted)">No jobs on this day.</td></tr>';
   } else {
     tbody.innerHTML = dayEvents.map((e, i) => {
       let gapCell;
@@ -1420,6 +1504,7 @@ async function openModal(date, printer) {
         <td class="num">${fmtTime(e.scan_in)}</td>
         <td class="num">${fmtTime(e.scan_out)}</td>
         <td class="num">${fmtGap(e.duration_sec)}</td>
+        <td class="num">${(e.sq_ft || 0).toFixed(2)}</td>
         ${gapCell}
       </tr>`;
     }).join('');
