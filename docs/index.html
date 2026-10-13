@@ -549,7 +549,7 @@ function loadScript(src, cb) {
 }
 
 // ---------- META ----------
-document.getElementById('meta').textContent = `${D.first_day} → ${D.last_day} · Mon–Thu 8–5 · Fri 8–12 · ${D.total_open_days} open days · ${D.total_sq_ft.toLocaleString(undefined, {maximumFractionDigits: 0})} sq ft total · ${D.total_reprint_jobs} reprints (${(D.total_reprint_sqft/D.total_sq_ft*100).toFixed(1)}% of film)`;
+document.getElementById('meta').textContent = `${D.first_day} → ${D.last_day} · Mon–Thu 8–5 · Fri 8–12 · ${D.total_open_days} open days · ${D.total_sq_ft.toLocaleString(undefined, {maximumFractionDigits: 0})} sq ft total · ${D.total_reprint_jobs} reprints (${(D.total_reprint_sqft/D.total_sq_ft*100).toFixed(1)}% of film) · ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC`;
 
 // ====================================================================
 // TAB 1: DASHBOARD
