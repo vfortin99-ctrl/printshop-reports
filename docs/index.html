@@ -1020,7 +1020,7 @@ function renderForgot() {
     <div class="card"><div class="k">Total incidents</div><div class="v">${totalInc}</div><div class="sub" style="font-size:11px; color:var(--muted)">5–30 min gaps</div></div>
     <div class="card"><div class="k">Likely forgot-scan</div><div class="v">${totalLikely}</div><div class="sub" style="font-size:11px; color:var(--muted)">other printers running during gap</div></div>
     <div class="card"><div class="k">Time lost</div><div class="v">${(totalLost/3600).toFixed(1)}h</div><div class="sub" style="font-size:11px; color:var(--muted)">across all printers / 4 months</div></div>
-    <div class="card"><div class="k">Avg gap</div><div class="v">${(totalLost/max(1,totalInc)/60).toFixed(1)}m</div></div>
+    <div class="card"><div class="k">Avg gap</div><div class="v">${(totalLost/Math.max(1,totalInc)/60).toFixed(1)}m</div></div>
   `;
   
   // Per-operator
@@ -1064,8 +1064,8 @@ function renderForgot() {
   
   const tbody = document.querySelector('#forgot-table tbody');
   tbody.innerHTML = '';
-  const max = 200;
-  list.slice(0, max).forEach(i => {
+  const maxRows = 200;
+  list.slice(0, maxRows).forEach(i => {
     const ctxCls = i.likely_forgot_scan ? '' : 'style="color:var(--ok)"';
     const ctxText = i.likely_forgot_scan
       ? `Other printer${i.other_printers_running.length > 1 ? 's' : ''} running: ${i.other_printers_running.join(', ')}`
@@ -1084,9 +1084,9 @@ function renderForgot() {
     tr.addEventListener('click', () => openModal(i.next_day, i.printer));
     tbody.appendChild(tr);
   });
-  if (list.length > max) {
+  if (list.length > maxRows) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td colspan="7" style="text-align:center; color:var(--muted); padding:10px;">… ${list.length - max} more (use Export CSV for the full list)</td>`;
+    tr.innerHTML = `<td colspan="7" style="text-align:center; color:var(--muted); padding:10px;">… ${list.length - maxRows} more (use Export CSV for the full list)</td>`;
     tbody.appendChild(tr);
   }
   window._lastForgot = list;
