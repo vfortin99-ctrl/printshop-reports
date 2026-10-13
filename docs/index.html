@@ -653,9 +653,11 @@ function renderLineChart(data, series, svgId) {
   const PADL = 50, PADR = 16, PADT = 16, PADB = 40;
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
   
-  // Find max
-  let max = 0;
-  data.forEach(r => series.forEach(s => { if (r[s] !== null && r[s] > max) max = r[s]; }));
+  // Find max (use 99th percentile to avoid outliers stretching the axis)
+  const all = [];
+  data.forEach(r => series.forEach(s => { if (r[s] !== null) all.push(r[s]); }));
+  all.sort((a, b) => a - b);
+  let max = all.length ? all[Math.min(all.length - 1, Math.floor(all.length * 0.99))] : 0;
   if (max === 0) max = 1;
   max = Math.ceil(max * 1.1);
   
