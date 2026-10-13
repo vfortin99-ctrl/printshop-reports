@@ -498,11 +498,17 @@ function fmtTime(iso) {
 }
 function fmtDate(iso) {
   if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en', {weekday:'short', month:'short', day:'numeric'});
+  // Parse YYYY-MM-DD as local date (not UTC) to avoid timezone shift
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  return dt.toLocaleDateString('en', {weekday:'short', month:'short', day:'numeric'});
 }
 function fmtDateShort(iso) {
   if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en', {month:'short', day:'numeric'});
+  // Parse YYYY-MM-DD as local date
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  return dt.toLocaleDateString('en', {month:'short', day:'numeric'});
 }
 function toast(msg) {
   const t = document.getElementById('toast');
