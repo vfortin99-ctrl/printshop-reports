@@ -2,26 +2,457 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>PrintShop Reports</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Print Job Gap Report — DTF Prints Canada</title>
 <style>
-body { font: 15px/1.5 -apple-system, system-ui, sans-serif; max-width: 720px; margin: 60px auto; padding: 0 20px; color: #111; }
-h1 { margin: 0 0 4px; }
-.sub { color: #666; font-size: 13px; margin-bottom: 32px; }
-ul { padding-left: 0; list-style: none; }
-li { padding: 12px 0; border-bottom: 1px solid #eee; }
-a { color: #3b5bff; text-decoration: none; font-weight: 500; }
-a:hover { text-decoration: underline; }
-.meta { color: #666; font-size: 13px; margin-top: 2px; }
+:root {
+  --bg: #0e1116; --panel: #161b22; --panel2: #1c2128; --border: #2a313b;
+  --text: #e6edf3; --muted: #8b949e; --accent: #3b5bff; --accent2: #5069ff;
+  --p1: #58a6ff; --p2: #3fb950; --p3: #d2a8ff;
+  --ok: #3fb950; --warn: #d29922; --bad: #f85149;
+  --closed: #da3633;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.5 -apple-system, system-ui, "Segoe UI", sans-serif; }
+body { padding: 24px; max-width: 1100px; margin: 0 auto; }
+h1 { font-size: 22px; margin: 0 0 4px; font-weight: 600; }
+.sub { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 28px; }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+.card .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.card .v { font-size: 22px; font-weight: 600; margin-top: 2px; }
+.card .v small { font-size: 12px; color: var(--muted); font-weight: 400; }
+
+.controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 18px; }
+.controls .spacer { flex: 1; }
+button, select { background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 10px; font: inherit; cursor: pointer; }
+button:hover, select:hover { border-color: var(--accent2); }
+button.on { background: var(--accent); border-color: var(--accent); color: white; }
+button:focus { outline: 2px solid var(--accent2); outline-offset: 1px; }
+
+h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+  margin: 28px 0 10px; font-weight: 500; }
+
+.daylist { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--panel); }
+.day { display: grid; grid-template-columns: 90px 40px 1fr; gap: 0; border-bottom: 1px solid var(--border); align-items: stretch; }
+.day:last-child { border-bottom: none; }
+.day .date { padding: 12px 14px; background: var(--panel2); display: flex; flex-direction: column; justify-content: center; }
+.day .date .d { font-weight: 600; font-size: 15px; }
+.day .date .y { color: var(--muted); font-size: 12px; }
+.day .dayname { padding: 12px 10px; display: flex; align-items: center; justify-content: center;
+  color: var(--muted); font-size: 12px; text-transform: uppercase; }
+.day.weekend { background: #11161d; }
+.day.weekend .date, .day.weekend .dayname { background: #11161d; }
+.day.closed .date { color: var(--muted); }
+.day.closed .printers { color: var(--muted); display: flex; align-items: center; padding: 12px 16px; font-style: italic; }
+
+.printers { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; padding: 10px 14px; }
+.pcell { background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px;
+  cursor: pointer; transition: border-color .12s, transform .05s; }
+.pcell:hover { border-color: var(--accent2); }
+.pcell:active { transform: scale(.99); }
+.pcell.b1 { border-left: 3px solid var(--p1); }
+.pcell.b2 { border-left: 3px solid var(--p2); }
+.pcell.b3 { border-left: 3px solid var(--p3); }
+.pcell.idle0 { background: linear-gradient(90deg, rgba(63,185,80,0.18) 0%, var(--panel2) 60%); }
+.pcell.idlewarn { background: linear-gradient(90deg, rgba(210,153,34,0.18) 0%, var(--panel2) 60%); }
+.pcell.idlebad { background: linear-gradient(90deg, rgba(248,81,73,0.18) 0%, var(--panel2) 60%); }
+.pcell .top { display: flex; justify-content: space-between; align-items: baseline; }
+.pcell .name { font-weight: 600; font-size: 14px; }
+.pcell .jobs { color: var(--muted); font-size: 12px; }
+.pcell .stats { margin-top: 4px; color: var(--muted); font-size: 12px; }
+.pcell .stats b { color: var(--text); font-weight: 500; }
+.pcell.empty { opacity: .45; cursor: default; }
+.pcell.empty:hover { border-color: var(--border); }
+
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+.legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 2px; }
+
+.big-gap-list { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--panel); }
+.bgrow { display: grid; grid-template-columns: 80px 60px 1fr 1fr 100px 70px; gap: 0; padding: 8px 14px;
+  border-bottom: 1px solid var(--border); font-size: 13px; cursor: pointer; align-items: center; }
+.bgrow:hover { background: var(--panel2); }
+.bgrow:last-child { border-bottom: none; }
+.bgrow .pname { font-weight: 500; }
+.bgrow .when { color: var(--muted); font-size: 12px; }
+.bgrow .gap { text-align: right; font-variant-numeric: tabular-nums; font-weight: 500; }
+.bgrow .cross { color: var(--muted); font-size: 11px; }
+.bgrow.head { font-size: 11px; text-transform: uppercase; color: var(--muted); letter-spacing: .04em; cursor: default; }
+.bgrow.head:hover { background: transparent; }
+
+details { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 0; margin-top: 12px; }
+details summary { padding: 12px 16px; cursor: pointer; font-weight: 500; }
+details summary:hover { background: var(--panel2); }
+details[open] summary { border-bottom: 1px solid var(--border); }
+details .body { padding: 0; }
+
+/* Modal */
+.backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: none; z-index: 100;
+  justify-content: center; align-items: flex-start; padding: 60px 16px; overflow-y: auto; }
+.backdrop.open { display: flex; }
+.modal { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; max-width: 920px; width: 100%;
+  max-height: calc(100vh - 120px); display: flex; flex-direction: column; }
+.modal-head { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+.modal-head h3 { margin: 0; font-size: 16px; }
+.modal-head .x { background: transparent; border: 0; color: var(--muted); font-size: 22px; cursor: pointer; padding: 0 6px; }
+.modal-head .x:hover { color: var(--text); }
+.modal-stats { display: flex; gap: 16px; padding: 12px 20px; background: var(--panel2); font-size: 13px; flex-wrap: wrap; }
+.modal-stats .stat { color: var(--muted); }
+.modal-stats .stat b { color: var(--text); }
+.modal-body { overflow: auto; padding: 0; }
+
+table.jobs { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.jobs th, table.jobs td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+table.jobs th { background: var(--panel2); position: sticky; top: 0; font-weight: 500; color: var(--muted);
+  font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+table.jobs td.num { text-align: right; font-variant-numeric: tabular-nums; }
+table.jobs tr.gap-before td { border-top: 1px solid var(--accent); }
+table.jobs tr.gap-before td.gap-cell { color: var(--accent); }
+table.jobs tr.gap-before td.gap-cell.long { color: var(--bad); font-weight: 600; }
+table.jobs tr.gap-before td.gap-cell.cross { background: rgba(210,153,34,0.12); }
+table.jobs .pname { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+table.jobs .badge { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 3px;
+  background: var(--panel2); border: 1px solid var(--border); color: var(--muted); margin-left: 4px; }
+table.jobs .badge.rep { background: rgba(248,81,73,0.15); border-color: rgba(248,81,73,0.4); color: var(--bad); }
+
+@media (max-width: 720px) {
+  .day { grid-template-columns: 70px 36px 1fr; }
+  .printers { grid-template-columns: 1fr; gap: 6px; padding: 8px; }
+  .pcell { padding: 8px 10px; }
+  .bgrow { grid-template-columns: 60px 50px 1fr 1fr 80px; font-size: 12px; }
+  .bgrow .cross { display: none; }
+}
 </style>
 </head>
 <body>
-<h1>PrintShop Reports</h1>
-<div class="sub">Auto-published from <code>inventory.dtfprintscanada.com</code> · last updated 2026-10-13 15:25 UTC</div>
-<ul>
-  <li>
-    <a href="print-job-gap-report.html">Print Job Gap Report — Jun 12 to Oct 13, 2026</a>
-    <div class="meta">Per-printer, day-by-day, 8am&ndash;5pm workday boundary. 11,996 print jobs across 7 operators. Source: Frappe <code>Print Job Log</code>.</div>
-  </li>
-</ul>
+
+<h1>Print Job Gap Report</h1>
+<div class="sub" id="sub">Loading…</div>
+
+<div class="cards" id="cards"></div>
+
+<div class="controls">
+  <button id="btn-open" class="on">Open days only</button>
+  <select id="month">
+    <option value="">All months</option>
+  </select>
+  <div class="spacer"></div>
+  <span class="sub" id="visible-count"></span>
+</div>
+
+<div class="legend">
+  <span><span class="sw" style="background:var(--p1)"></span>Printer 1</span>
+  <span><span class="sw" style="background:var(--p2)"></span>Printer 2</span>
+  <span><span class="sw" style="background:var(--p3)"></span>Printer 3</span>
+  <span style="margin-left:14px"><span class="sw" style="background:rgba(63,185,80,0.5)"></span>0% idle (busy all day)</span>
+  <span><span class="sw" style="background:rgba(210,153,34,0.5)"></span>1-30% idle</span>
+  <span><span class="sw" style="background:rgba(248,81,73,0.5)"></span>&gt;30% idle</span>
+</div>
+
+<h2>By day</h2>
+<div class="daylist" id="daylist"></div>
+
+<h2>Longest gaps (≥ 30 min)</h2>
+<details open>
+  <summary id="big-gap-summary">Click a row to jump to that day and printer</summary>
+  <div class="body">
+    <div class="big-gap-list" id="big-gaps"></div>
+  </div>
+</details>
+
+<div class="backdrop" id="backdrop">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="modal-title">…</h3>
+      <button class="x" id="modal-close">×</button>
+    </div>
+    <div class="modal-stats" id="modal-stats"></div>
+    <div class="modal-body">
+      <table class="jobs" id="modal-jobs">
+        <thead><tr>
+          <th>#</th><th>Job</th><th>Order</th>
+          <th>Scan in</th><th>Scan out</th><th>Duration</th>
+          <th>Gap from previous</th>
+        </tr></thead>
+        <tbody id="modal-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script>
+(function() {
+  const D = window.PRINT_DATA;
+  const PRINTERS = D.target_printers;
+  const SHORT = D.target_short;
+  const PCOLOR = {"printer1@dtfprintscanada.com":"b1","printer2@dtfprintscanada.com":"b2","printer3@dtfprintscanada.com":"b3"};
+
+  // Sub
+  document.getElementById('sub').textContent =
+    `DTF Prints Canada (prod) · ${D.first_day} → ${D.last_day} · 8am–5pm workday · ${D.total_open_days} open days · ${D.total_closed_days} closed (weekends + holidays)`;
+
+  // Cards
+  const cards = document.getElementById('cards');
+  const totalDays = Object.keys(D.days).length;
+  const totalJobs = D.total_jobs;
+  cards.innerHTML = `
+    <div class="card"><div class="k">Total print jobs</div><div class="v">${totalJobs.toLocaleString()}</div></div>
+    <div class="card"><div class="k">Days open</div><div class="v">${D.total_open_days}</div></div>
+    <div class="card"><div class="k">Days closed</div><div class="v">${D.total_closed_days}</div></div>
+    <div class="card"><div class="k">Longest gap</div><div class="v">${formatGapLong(D.big_gaps[0]?.gap_sec || 0)}</div></div>
+  `;
+
+  // Month filter
+  const months = new Set();
+  Object.values(D.days).forEach(d => months.add(d.date.slice(0,7)));
+  const monthSel = document.getElementById('month');
+  Array.from(months).sort().forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m;
+    const [y, mo] = m.split('-');
+    opt.textContent = new Date(y, mo-1, 1).toLocaleString('en', {month:'long', year:'numeric'});
+    monthSel.appendChild(opt);
+  });
+
+  // State
+  let onlyOpen = true;
+  let monthFilter = '';
+
+  function formatGap(sec) {
+    if (!sec) return '—';
+    if (sec < 60) return Math.round(sec) + 's';
+    if (sec < 3600) return (sec/60).toFixed(1) + 'm';
+    return (sec/3600).toFixed(1) + 'h';
+  }
+  function formatGapLong(sec) {
+    if (!sec) return '—';
+    if (sec < 3600) return (sec/60).toFixed(0) + 'm';
+    if (sec < 86400) return (sec/3600).toFixed(1) + 'h';
+    return (sec/86400).toFixed(1) + 'd';
+  }
+  function formatTime(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleTimeString('en', {hour:'2-digit', minute:'2-digit', hour12: false});
+  }
+  function formatDate(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleDateString('en', {month:'short', day:'numeric'});
+  }
+
+  // Render day list
+  function renderDays() {
+    const container = document.getElementById('daylist');
+    const sortedDays = Object.values(D.days).sort((a,b) => a.date.localeCompare(b.date));
+    let visible = 0;
+    const frag = document.createDocumentFragment();
+
+    sortedDays.forEach(day => {
+      if (onlyOpen && day.shop_closed) return;
+      if (monthFilter && !day.date.startsWith(monthFilter)) return;
+      visible++;
+
+      const row = document.createElement('div');
+      row.className = 'day';
+      if (day.is_weekend) row.classList.add('weekend');
+      if (day.shop_closed) row.classList.add('closed');
+
+      const d = new Date(day.date);
+      const dateCell = document.createElement('div');
+      dateCell.className = 'date';
+      dateCell.innerHTML = `<div class="d">${d.toLocaleDateString('en', {month:'short', day:'numeric'})}</div><div class="y">${d.getFullYear()}</div>`;
+
+      const dayname = document.createElement('div');
+      dayname.className = 'dayname';
+      dayname.textContent = day.dayname;
+
+      const printers = document.createElement('div');
+      printers.className = 'printers';
+
+      if (day.shop_closed) {
+        const closed = document.createElement('div');
+        closed.style.gridColumn = '1 / -1';
+        closed.style.textAlign = 'center';
+        closed.textContent = day.is_weekend ? 'Weekend' : 'Shop closed';
+        printers.appendChild(closed);
+        row.appendChild(dateCell);
+        row.appendChild(dayname);
+        row.appendChild(printers);
+      } else {
+        PRINTERS.forEach(p => {
+          const s = day.printers[p];
+          const cell = document.createElement('div');
+          const c = PCOLOR[p];
+          cell.className = `pcell ${c}`;
+          if (s.jobs === 0) {
+            cell.classList.add('empty');
+            cell.innerHTML = `<div class="top"><span class="name">${SHORT[p]}</span><span class="jobs">—</span></div><div class="stats">no jobs</div>`;
+          } else {
+            let cls = '';
+            if (s.idle_pct === 0) cls = 'idle0';
+            else if (s.idle_pct < 30) cls = 'idlewarn';
+            else cls = 'idlebad';
+            cell.classList.add(cls);
+            cell.innerHTML = `
+              <div class="top">
+                <span class="name">${SHORT[p]}</span>
+                <span class="jobs">${s.jobs} job${s.jobs===1?'':'s'}</span>
+              </div>
+              <div class="stats">
+                <b>${s.idle_pct.toFixed(0)}%</b> idle · median gap <b>${formatGap(s.median_gap)}</b> · max <b>${formatGap(s.max_gap)}</b>
+                <br><span style="font-size:11px">${formatTime(s.first_in)}–${formatTime(s.last_out)}</span>
+              </div>
+            `;
+            cell.addEventListener('click', () => openModal(day.date, p));
+          }
+          printers.appendChild(cell);
+        });
+        row.appendChild(dateCell);
+        row.appendChild(dayname);
+        row.appendChild(printers);
+      }
+      frag.appendChild(row);
+    });
+
+    container.innerHTML = '';
+    container.appendChild(frag);
+    document.getElementById('visible-count').textContent = `${visible} day${visible===1?'':'s'}`;
+  }
+
+  // Render big gaps list
+  function renderBigGaps() {
+    const container = document.getElementById('big-gaps');
+    const top = D.big_gaps.slice(0, 25);
+    const head = `<div class="bgrow head">
+      <div>Printer</div><div>When</div><div>After</div><div>Before</div>
+      <div class="gap">Gap</div><div>Type</div>
+    </div>`;
+    const rows = top.map(g => {
+      const type = g.crosses_day ? 'overnight' : 'same-day';
+      return `<div class="bgrow" data-day="${g.next_day}" data-printer="${g.printer}">
+        <div class="pname">${SHORT[g.printer] || g.printer}</div>
+        <div class="when">${formatDate(g.next_start)}</div>
+        <div><span class="pname">${g.prev_job}</span><br><span class="when">${formatTime(g.prev_end)}</span></div>
+        <div><span class="pname">${g.next_job}</span><br><span class="when">${formatTime(g.next_start)}</span></div>
+        <div class="gap">${formatGapLong(g.gap_sec)}</div>
+        <div class="cross">${type}</div>
+      </div>`;
+    }).join('');
+    container.innerHTML = head + rows;
+
+    container.querySelectorAll('.bgrow[data-day]').forEach(row => {
+      row.addEventListener('click', () => {
+        openModal(row.dataset.day, row.dataset.printer);
+      });
+    });
+  }
+
+  // Modal: lazy-load events.js
+  let eventsLoaded = false;
+  function loadEvents() {
+    return new Promise((resolve) => {
+      if (eventsLoaded) return resolve();
+      const s = document.createElement('script');
+      s.src = 'events.js';
+      s.onload = () => { eventsLoaded = true; resolve(); };
+      document.body.appendChild(s);
+    });
+  }
+
+  async function openModal(date, printer) {
+    const modal = document.getElementById('backdrop');
+    const title = document.getElementById('modal-title');
+    const stats = document.getElementById('modal-stats');
+    const tbody = document.getElementById('modal-tbody');
+
+    title.textContent = `${SHORT[printer]} · ${new Date(date).toLocaleDateString('en', {weekday:'long', month:'short', day:'numeric', year:'numeric'})}`;
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--muted)">Loading jobs…</td></tr>';
+    modal.classList.add('open');
+    document.body.style.overflow = 'hidden';
+
+    await loadEvents();
+    const allEvents = window.PRINT_EVENTS[printer] || [];
+    const dayEvents = allEvents.filter(e => e.scan_in.startsWith(date));
+
+    const dayData = D.days[date]?.printers?.[printer] || {};
+    stats.innerHTML = `
+      <div class="stat">Jobs: <b>${dayEvents.length}</b></div>
+      <div class="stat">Active: <b>${(dayData.active_sec/3600).toFixed(2)}h</b></div>
+      <div class="stat">Idle: <b>${dayData.idle_pct?.toFixed(0) || 0}%</b></div>
+      <div class="stat">Median gap: <b>${formatGap(dayData.median_gap)}</b></div>
+      <div class="stat">Max gap: <b>${formatGap(dayData.max_gap)}</b></div>
+      <div class="stat">Window: <b>${formatTime(dayData.first_in)} – ${formatTime(dayData.last_out)}</b></div>
+    `;
+
+    if (dayEvents.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--muted)">No jobs on this day.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = dayEvents.map((e, i) => {
+      let gapClass = '';
+      let gapCell = '<td class="num">—</td><td></td>';
+      if (e.gap_to_prev_sec !== null && e.gap_to_prev_sec !== undefined) {
+        let cls = 'gap-cell';
+        if (e.gap_to_prev_sec >= 1800) cls += ' long';
+        if (e.gap_crosses_day) cls += ' cross';
+        const label = e.gap_crosses_day
+          ? `${formatGapLong(e.gap_to_prev_sec)} <span class="cross">(crosses day)</span>`
+          : formatGap(e.gap_to_prev_sec);
+        gapCell = `<td class="num ${cls}">${label}</td><td></td>`;
+        gapClass = 'gap-before';
+      } else {
+        gapCell = '<td class="num" style="color:var(--muted)">first</td><td></td>';
+      }
+      const badges = [];
+      if (e.is_reprint) badges.push('<span class="badge rep">reprint</span>');
+      if (e.is_handoff) badges.push('<span class="badge">handoff</span>');
+      return `<tr class="${gapClass}">
+        <td class="num">${i+1}</td>
+        <td class="pname">${e.name}${badges.join('')}</td>
+        <td>${e.order_number || '—'}</td>
+        <td class="num">${formatTime(e.scan_in)}</td>
+        <td class="num">${formatTime(e.scan_out)}</td>
+        <td class="num">${formatGap(e.duration_sec)}</td>
+        ${gapCell}
+      </tr>`;
+    }).join('');
+  }
+
+  function closeModal() {
+    document.getElementById('backdrop').classList.remove('open');
+    document.body.style.overflow = '';
+  }
+  document.getElementById('modal-close').addEventListener('click', closeModal);
+  document.getElementById('backdrop').addEventListener('click', (e) => {
+    if (e.target.id === 'backdrop') closeModal();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeModal();
+  });
+
+  // Controls
+  document.getElementById('btn-open').addEventListener('click', (e) => {
+    onlyOpen = !onlyOpen;
+    e.target.classList.toggle('on', onlyOpen);
+    e.target.textContent = onlyOpen ? 'Open days only' : 'All days';
+    renderDays();
+  });
+  document.getElementById('month').addEventListener('change', (e) => {
+    monthFilter = e.target.value;
+    renderDays();
+  });
+
+  // Initial render
+  renderDays();
+  renderBigGaps();
+})();
+</script>
+
 </body>
 </html>
