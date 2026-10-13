@@ -514,8 +514,14 @@ function toast(msg) {
 // ---------- date range filter ----------
 function getFilteredDays(rangeKey) {
   if (rangeKey === 'all') return D.all_days;
+  // Use real "today" if bundle is fresh, else fall back to D.last_day
+  const realToday = new Date().toISOString().slice(0, 10);
+  const lastDay = D.last_day;
+  // If bundle's last_day is in the past, use it (data is stale, base off data)
+  // If bundle's last_day is today or future, use real today
+  const today = realToday >= lastDay ? realToday : lastDay;
   const days = parseInt(rangeKey);
-  const cutoff = new Date(D.last_day);
+  const cutoff = new Date(today);
   cutoff.setDate(cutoff.getDate() - days + 1);
   const cutoffStr = cutoff.toISOString().slice(0, 10);
   return D.all_days.filter(d => d >= cutoffStr);
