@@ -647,13 +647,26 @@ function renderSparkline(days) {
   if (days.length === 0) return;
   const data = days.map(d => D.days[d].jobs);
   const max = Math.max(...data, 1);
-  const min = 0;  // Always start at 0
+  const min = 0;
   const W = 1000, H = 80, P = 4;
   const xs = data.map((_, i) => P + (i / Math.max(1, data.length - 1)) * (W - 2*P));
   const ys = data.map(v => H - P - ((v - min) / Math.max(1, max - min)) * (H - 2*P));
-  
-  // Build line that breaks at closed days (no 0-value dips for weekends)
-  // Use separate path segments for runs of non-closed days
+
+  // Subtle red background stripe on closed days (visually obvious they're "off")
+  days.forEach((d, i) => {
+    if (D.days[d].shop_closed) {
+      const x = xs[i];
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      rect.setAttribute('x', x - 2);
+      rect.setAttribute('y', 4);
+      rect.setAttribute('width', 4);
+      rect.setAttribute('height', H - 8);
+      rect.setAttribute('fill', 'rgba(218,54,51,0.15)');
+      svg.appendChild(rect);
+    }
+  });
+
+  // Build line that breaks at closed days
   const segments = [];
   let currentSeg = null;
   for (let i = 0; i < days.length; i++) {
@@ -667,7 +680,7 @@ function renderSparkline(days) {
     }
   }
   if (currentSeg && currentSeg.length > 1) segments.push(currentSeg);
-  
+
   segments.forEach(seg => {
     const segPath = 'M ' + xs[seg[0]] + ' ' + ys[seg[0]] + ' ' + seg.slice(1).map(i => 'L ' + xs[i] + ' ' + ys[i]).join(' ');
     const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -677,16 +690,16 @@ function renderSparkline(days) {
     line.setAttribute('stroke-width', '1.5');
     svg.appendChild(line);
   });
-  
-  // Closed days as light dots
+
+  // Closed days as small red dots in the middle
   days.forEach((d, i) => {
     if (D.days[d].shop_closed) {
       const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
       c.setAttribute('cx', xs[i]);
-      c.setAttribute('cy', H - P);
+      c.setAttribute('cy', H / 2);
       c.setAttribute('r', 1.5);
       c.setAttribute('fill', 'var(--closed)');
-      c.setAttribute('opacity', 0.4);
+      c.setAttribute('opacity', 0.5);
       svg.appendChild(c);
     }
   });
@@ -849,8 +862,22 @@ function renderLineChart(data, series, svgId) {
       svg.appendChild(lab);
     }
   });
-  
-  // Lines per series
+
+  // Closed day shading (red stripe on weekends/holidays)
+  data.forEach((r, i) => {
+    if (D.days[r.date] && D.days[r.date].shop_closed) {
+      const x = xAt(i);
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      rect.setAttribute('x', x - 1.5);
+      rect.setAttribute('y', PADT);
+      rect.setAttribute('width', 3);
+      rect.setAttribute('height', H - PADT - PADB);
+      rect.setAttribute('fill', 'rgba(218,54,51,0.12)');
+      svg.appendChild(rect);
+    }
+  });
+
+  // Lines per series (already breaks on null = closed day)
   const colors = ['var(--p1)', 'var(--p2)', 'var(--p3)'];
   series.forEach((s, idx) => {
     let path = '';
