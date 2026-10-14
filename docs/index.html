@@ -201,6 +201,7 @@ tr.closed-day td:first-child { border-left: 3px solid var(--bad); }
 <div class="tabs" id="tabs">
   <div class="tab active" data-tab="dashboard">Dashboard</div>
   <div class="tab" data-tab="throughput">Throughput</div>
+  <div class="tab" data-tab="byprinter">By Printer</div>
   <div class="tab" data-tab="heatmap">Weekday Heatmap</div>
   <div class="tab" data-tab="bottleneck">Bottleneck</div>
   <div class="tab" data-tab="gaps">Gap Hotspots</div>
@@ -267,6 +268,31 @@ tr.closed-day td:first-child { border-left: 3px solid var(--bad); }
     <thead><tr><th>Printer</th><th class="num">Total jobs</th><th class="num">Total sq ft</th><th class="num">Total active hours</th><th class="num">Jobs/hr</th><th class="num">Sq ft/hr</th><th class="num">Median duration</th></tr></thead>
     <tbody></tbody>
   </table>
+</div>
+
+<!-- TAB 2.5: BY PRINTER (per-printer per-day table) -->
+<div class="tabpanel" id="tab-byprinter">
+  <p class="sub">Per-printer per-day breakdown. Each row is a single printer on a single day. Idle% is well-defined per printer (not a fleet sum). Click a day cell to drill into the job list for that printer on that day.</p>
+  <div class="controls">
+    <label>Printer:</label>
+    <select id="bp-printer">
+      <option value="all">All printers</option>
+    </select>
+    <div class="sep"></div>
+    <button id="bp-open" class="on">Open days only</button>
+    <div class="sep"></div>
+    <label>Sort:</label>
+    <select id="bp-sort">
+      <option value="date_desc">Date (newest first)</option>
+      <option value="date_asc">Date (oldest first)</option>
+      <option value="most_idle">Most idle%</option>
+      <option value="least_idle">Least idle%</option>
+      <option value="most_jobs">Most jobs</option>
+    </select>
+    <div class="sep"></div>
+    <span class="sub" id="bp-count"></span>
+  </div>
+  <div class="daylist" id="bp-list"></div>
 </div>
 
 <!-- TAB 3: HEATMAP -->
@@ -468,7 +494,7 @@ tr.closed-day td:first-child { border-left: 3px solid var(--bad); }
 
 <div class="toast" id="toast"></div>
 
-<script src="data.js?v=20261014"></script>
+<script src="data.js?v=20261014a"></script>
 <script>
 (function() {
 'use strict';
@@ -545,6 +571,7 @@ document.querySelectorAll('.tab').forEach(t => {
     if (t.dataset.tab === 'forgot' && !window.PRINT_FORGOT) loadScript('forgot_scans.js', renderForgot);
     if (t.dataset.tab === 'reprints' && !window.PRINT_REPRINTS) loadScript('reprints.js', renderReprints);
     if (t.dataset.tab === 'orders' && !window.PRINT_ORDERS) loadScript('orders.js', renderOrdersInitial);
+    if (t.dataset.tab === 'byprinter') renderByPrinter();
   });
 });
 function loadScript(src, cb) {
@@ -918,6 +945,89 @@ function renderLineChart(data, series, svgId) {
     t.setAttribute('fill', 'var(--text)'); t.setAttribute('font-size', '11');
     t.textContent = SHORT[s];
     svg.appendChild(t);
+  });
+}
+
+// ====================================================================
+// TAB 2.5: BY PRINTER (per-printer per-day)
+// ====================================================================
+let bpPrinter = 'all';
+let bpOnlyOpen = true;
+let bpSort = 'date_desc';
+
+const bpPrinterSel = document.getElementById('bp-printer');
+PRINTERS.forEach(p => {
+  const opt = document.createElement('option');
+  opt.value = p;
+  opt.textContent = SHORT[p];
+  bpPrinterSel.appendChild(opt);
+});
+bpPrinterSel.addEventListener('change', e => { bpPrinter = e.target.value; renderByPrinter(); });
+document.getElementById('bp-open').addEventListener('click', e => {
+  bpOnlyOpen = !bpOnlyOpen;
+  e.target.classList.toggle('on', bpOnlyOpen);
+  renderByPrinter();
+});
+document.getElementById('bp-sort').addEventListener('change', e => { bpSort = e.target.value; renderByPrinter(); });
+
+function renderByPrinter() {
+  if (!D.printer_days) { document.getElementById('bp-list').innerHTML = '<p class="sub">printer_days not in bundle (older version).</p>'; return; }
+  // Build a flat list of {printer, date, day_record}
+  let rows = [];
+  const printers = bpPrinter === 'all' ? PRINTERS : [bpPrinter];
+  for (const p of printers) {
+    const pdata = D.printer_days[p] || {};
+    for (const d of D.all_days) {
+      const day = pdata[d];
+      if (!day) continue;
+      if (bpOnlyOpen && day.closed) continue;
+      rows.push({printer: p, date: d, day: day});
+    }
+  }
+  // Sort
+  if (bpSort === 'date_desc') rows.sort((a, b) => b.date.localeCompare(a.date) || a.printer.localeCompare(b.printer));
+  else if (bpSort === 'date_asc') rows.sort((a, b) => a.date.localeCompare(b.date) || a.printer.localeCompare(b.printer));
+  else if (bpSort === 'most_idle') rows.sort((a, b) => (b.day.idle_pct || 0) - (a.day.idle_pct || 0));
+  else if (bpSort === 'least_idle') rows.sort((a, b) => (a.day.idle_pct || 100) - (b.day.idle_pct || 100));
+  else if (bpSort === 'most_jobs') rows.sort((a, b) => b.day.jobs - a.day.jobs);
+
+  document.getElementById('bp-count').textContent = `${rows.length} printer-day${rows.length === 1 ? '' : 's'}`;
+
+  const container = document.getElementById('bp-list');
+  if (rows.length === 0) {
+    container.innerHTML = '<p class="sub">No printer-days match the filter.</p>';
+    return;
+  }
+  // Group by date for compact display
+  const html = rows.slice(0, 300).map(r => {
+    const day = r.day;
+    const sqftHr = day.active_sec > 0 ? (day.sq_ft / (day.active_sec / 3600)) : 0;
+    const cls = day.closed ? 'class="closed"' : '';
+    return `<tr ${cls} data-printer="${r.printer}" data-date="${r.date}" style="cursor:pointer">
+      <td>${fmtDate(r.date)}${day.closed ? ' <span class="sub" style="color:var(--bad)">— closed</span>' : ''}</td>
+      <td><b>${SHORT[r.printer]}</b></td>
+      <td class="num">${day.jobs}</td>
+      <td class="num">${(day.sq_ft || 0).toFixed(0)}</td>
+      <td class="num">${sqftHr.toFixed(0)}</td>
+      <td class="num">${day.active_hours.toFixed(1)}h</td>
+      <td class="num">${day.big_gaps}</td>
+      <td class="num">${day.idle_pct !== null ? day.idle_pct + '%' : '—'}</td>
+    </tr>`;
+  }).join('');
+  container.innerHTML = `<table class="compact">
+    <thead><tr>
+      <th>Date</th><th>Printer</th>
+      <th class="num">Jobs</th><th class="num">Sq ft</th><th class="num">Sq ft/hr</th>
+      <th class="num">Active hours</th><th class="num">Big gaps</th><th class="num">Idle %</th>
+    </tr></thead>
+    <tbody>${html}</tbody>
+  </table>`;
+  // Click row to drill into the modal for that printer on that day
+  container.querySelectorAll('tr[data-printer]').forEach(tr => {
+    tr.addEventListener('click', () => {
+      // Reuse the existing day modal; it filters to one printer when called with a printer key
+      openModal(tr.dataset.date, tr.dataset.printer);
+    });
   });
 }
 
@@ -1734,6 +1844,7 @@ function downloadCSV(rows, filename) {
 // Initial render
 renderDashboard();
 renderThroughput();
+renderByPrinter();
 renderHeatmap();
 renderBottleneck();
 renderReprints();  // safe even if PRINT_REPRINTS not loaded yet
