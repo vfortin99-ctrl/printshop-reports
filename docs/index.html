@@ -470,8 +470,6 @@ tr.closed-day td:first-child { border-left: 3px solid var(--bad); }
 
 <script src="data.js"></script>
 <script>
-window._topErr = null;
-try {
 (function() {
 'use strict';
 
@@ -1734,17 +1732,15 @@ function downloadCSV(rows, filename) {
 // ====================================================================
 // Initial render
 // Initial render
-window._initErrs = [];
-try { renderDashboard(); } catch(e) { window._initErrs.push('dashboard: ' + e.message + ' @ ' + (e.stack||'').slice(0,300)); }
-try { renderThroughput(); } catch(e) { window._initErrs.push('throughput: ' + e.message + ' @ ' + (e.stack||'').slice(0,300)); }
-try { renderHeatmap(); } catch(e) { window._initErrs.push('heatmap: ' + e.message + ' @ ' + (e.stack||'').slice(0,300)); }
-try { renderBottleneck(); } catch(e) { window._initErrs.push('bottleneck: ' + e.message + ' @ ' + (e.stack||'').slice(0,300)); }
+renderDashboard();
+renderThroughput();
+renderHeatmap();
+renderBottleneck();
 renderReprints();  // safe even if PRINT_REPRINTS not loaded yet
 renderDays();
 renderOrdersInitial();  // safe even if PRINT_ORDERS not loaded yet
 
 })();
-} catch(e) { window._topErr = e.message + ' @ ' + (e.stack||'').slice(0,500); }
 </script>
 
 </body>
