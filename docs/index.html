@@ -470,6 +470,8 @@ tr.closed-day td:first-child { border-left: 3px solid var(--bad); }
 
 <script src="data.js"></script>
 <script>
+window._topErr = null;
+try {
 (function() {
 'use strict';
 
@@ -1742,6 +1744,7 @@ renderDays();
 renderOrdersInitial();  // safe even if PRINT_ORDERS not loaded yet
 
 })();
+} catch(e) { window._topErr = e.message + ' @ ' + (e.stack||'').slice(0,500); }
 </script>
 
 </body>
