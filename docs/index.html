@@ -501,7 +501,12 @@ tr.closed-day td:first-child { border-left: 3px solid var(--bad); }
 
 const D = window.PRINT_DATA;
 const PRINTERS = D.target_printers;
-const SHORT = D.target_short;
+// Map printer email -> short label like "Printer 1". target_short is an array
+// indexed by position; we want a real map for SHORT[p] lookups (was previously
+// "undefined" everywhere because SHORT is an array).
+const SHORT_MAP = {};
+PRINTERS.forEach((p, i) => { SHORT_MAP[p] = D.target_short[i] || p; });
+const SHORT = SHORT_MAP;  // alias so existing SHORT[p] lookups work
 const PCOLOR = {"printer1@dtfprintscanada.com":"b1","printer2@dtfprintscanada.com":"b2","printer3@dtfprintscanada.com":"b3"};
 
 // ---------- formatters ----------
