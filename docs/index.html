@@ -1052,15 +1052,21 @@ function renderHeatmap() {
   PRINTERS.forEach(p => {
     grid1.appendChild(makeHeatCell('rowlabel', SHORT[p]));
     for (let w = 0; w < 7; w++) {
-      const data = idles[String(w)][p];
-      const idle = data.avg_idle_pct;
-      const bg = idle === null ? 'transparent' : idleToColor(idle);
-      const cell = makeHeatCell('cell', '', data.n_days > 0 ? Math.round(idle) + '%' : '—', {background: bg});
-      cell.title = `${SHORT[p]} · ${D.weekday_names[w]} · ${data.n_days} days · ${data.jobs} jobs · ${data.throughput_per_hour} jobs/hr · ${data.big_gaps} big gaps`;
+      const wd = idles[String(w)];
+      const data = wd ? (wd.printers ? wd.printers[p] : wd) : null;
+      if (!data) {
+        grid1.appendChild(makeHeatCell('cell', '', '—', {background: 'transparent'}));
+        continue;
+      }
+      const idle = data.idle_pct;
+      const nDays = wd ? wd.days : 0;
+      const bg = idle === null || idle === undefined ? 'transparent' : idleToColor(idle);
+      const cell = makeHeatCell('cell', '', idle !== null && idle !== undefined ? Math.round(idle) + '%' : '—', {background: bg});
+      cell.title = `${SHORT[p]} · ${D.weekday_names[w]} · ${nDays} days · ${data.jobs || 0} jobs · ${data.throughput_per_hour || 0} jobs/hr · ${data.big_gaps || 0} big gaps`;
       grid1.appendChild(cell);
     }
   });
-  
+
   // Jobs heatmap
   const grid2 = document.getElementById('heatmap-jobs');
   grid2.innerHTML = '';
@@ -1068,48 +1074,63 @@ function renderHeatmap() {
   for (let w = 0; w < 7; w++) {
     grid2.appendChild(makeHeatCell('h', '', D.weekday_names[w]));
   }
+  // Compute max jobs across (printer, weekday) for normalization
+  let maxJobs = 0;
+  PRINTERS.forEach(pp => {
+    for (let w = 0; w < 7; w++) {
+      const wd = idles[String(w)];
+      const data = wd && wd.printers ? wd.printers[pp] : null;
+      if (data && data.jobs > maxJobs) maxJobs = data.jobs;
+    }
+  });
+  if (maxJobs === 0) maxJobs = 1;
   PRINTERS.forEach(p => {
     grid2.appendChild(makeHeatCell('rowlabel', SHORT[p]));
     for (let w = 0; w < 7; w++) {
-      const data = idles[String(w)][p];
-      const maxJobs = Math.max(...PRINTERS.flatMap(pp => [0, ...[0,1,2,3,4,5,6].map(w => idles[String(w)][pp].jobs)]));
+      const wd = idles[String(w)];
+      const data = wd && wd.printers ? wd.printers[p] : null;
+      if (!data || !data.jobs) {
+        grid2.appendChild(makeHeatCell('cell', '', '—', {background: 'transparent'}));
+        continue;
+      }
       const intensity = data.jobs / maxJobs;
-      const bg = data.n_days > 0 ? `rgba(88,166,255,${0.1 + intensity * 0.7})` : 'transparent';
-      const cell = makeHeatCell('cell', '', data.n_days > 0 ? data.jobs : '—', {background: bg});
-      cell.title = `${SHORT[p]} · ${D.weekday_names[w]} · ${data.jobs} total jobs over ${data.n_days} days`;
+      const bg = `rgba(88,166,255,${0.1 + intensity * 0.7})`;
+      const cell = makeHeatCell('cell', '', data.jobs, {background: bg});
+      const nDays = wd.days;
+      cell.title = `${SHORT[p]} · ${D.weekday_names[w]} · ${data.jobs} total jobs over ${nDays} days`;
       grid2.appendChild(cell);
     }
   });
 
-  // Sq ft heatmap (use sqft_per_hour from weekday_data)
+  // Sq ft heatmap
   const grid3 = document.getElementById('heatmap-sqft');
   grid3.innerHTML = '';
   grid3.appendChild(makeHeatCell('h', '', ''));
   for (let w = 0; w < 7; w++) {
     grid3.appendChild(makeHeatCell('h', '', D.weekday_names[w]));
   }
-  // Need sqft per weekday - compute from events
-  const wdSqft = {};
-  for (let w = 0; w < 7; w++) {
-    wdSqft[w] = {};
-    PRINTERS.forEach(p => { wdSqft[w][p] = 0; });
-  }
-  // Use weekday_data's sqft_per_hour * active_hours as estimate, but really we need raw
-  // Actually let's compute raw from scratch using the data we have
-  // For simplicity, use the sqft_per_hour * active_hours (which is just total_sqft)
-  // But weekday_data doesn't have total_sqft per weekday. Let me compute it.
-  // Use the bundle data: iterate over all days, sum sqft by (weekday, printer)
-  // Actually we have sqft_per_hour and active_hours. Total = sqft_per_hour * active_hours
+  let maxSqftHr = 1;
+  PRINTERS.forEach(pp => {
+    for (let w = 0; w < 7; w++) {
+      const wd = idles[String(w)];
+      const data = wd && wd.printers ? wd.printers[pp] : null;
+      if (data && (data.sqft_per_hour || 0) > maxSqftHr) maxSqftHr = data.sqft_per_hour;
+    }
+  });
   PRINTERS.forEach(p => {
     grid3.appendChild(makeHeatCell('rowlabel', SHORT[p]));
     for (let w = 0; w < 7; w++) {
-      const data = idles[String(w)][p];
-      const sqftHr = data.sqft_per_hour || 0;
-      const maxSqftHr = Math.max(...PRINTERS.flatMap(pp => [0, ...[0,1,2,3,4,5,6].map(w => idles[String(w)][pp].sqft_per_hour || 0)]), 1);
-      const intensity = sqftHr / maxSqftHr;
-      const bg = data.n_days > 0 ? `rgba(210,153,34,${0.1 + intensity * 0.7})` : 'transparent';
-      const cell = makeHeatCell('cell', '', data.n_days > 0 ? Math.round(sqftHr) : '—', {background: bg});
-      cell.title = `${SHORT[p]} · ${D.weekday_names[w]} · ${Math.round(sqftHr)} sq ft/hr over ${data.n_days} days`;
+      const wd = idles[String(w)];
+      const data = wd && wd.printers ? wd.printers[p] : null;
+      if (!data || !data.sqft_per_hour) {
+        grid3.appendChild(makeHeatCell('cell', '', '—', {background: 'transparent'}));
+        continue;
+      }
+      const intensity = data.sqft_per_hour / maxSqftHr;
+      const bg = `rgba(210,153,34,${0.1 + intensity * 0.7})`;
+      const cell = makeHeatCell('cell', '', Math.round(data.sqft_per_hour), {background: bg});
+      const nDays = wd.days;
+      cell.title = `${SHORT[p]} · ${D.weekday_names[w]} · ${Math.round(data.sqft_per_hour)} sq ft/hr over ${nDays} days`;
       grid3.appendChild(cell);
     }
   });
