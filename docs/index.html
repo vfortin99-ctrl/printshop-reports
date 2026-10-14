@@ -1732,10 +1732,11 @@ function downloadCSV(rows, filename) {
 // ====================================================================
 // Initial render
 // Initial render
-renderDashboard();
-renderThroughput();
-renderHeatmap();
-renderBottleneck();
+window._initErrs = [];
+try { renderDashboard(); } catch(e) { window._initErrs.push('dashboard: ' + e.message + ' @ ' + (e.stack||'').slice(0,300)); }
+try { renderThroughput(); } catch(e) { window._initErrs.push('throughput: ' + e.message + ' @ ' + (e.stack||'').slice(0,300)); }
+try { renderHeatmap(); } catch(e) { window._initErrs.push('heatmap: ' + e.message + ' @ ' + (e.stack||'').slice(0,300)); }
+try { renderBottleneck(); } catch(e) { window._initErrs.push('bottleneck: ' + e.message + ' @ ' + (e.stack||'').slice(0,300)); }
 renderReprints();  // safe even if PRINT_REPRINTS not loaded yet
 renderDays();
 renderOrdersInitial();  // safe even if PRINT_ORDERS not loaded yet
