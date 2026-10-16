@@ -27,6 +27,17 @@ h3 { font-size: 14px; margin: 16px 0 8px; font-weight: 600; }
   display: flex; gap: 16px; align-items: center; }
 .topbar .title { font-weight: 600; font-size: 16px; margin-right: auto; }
 .topbar .meta { color: var(--muted); font-size: 12px; }
+.refresh-btn {
+  background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+  padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;
+  display: flex; gap: 6px; align-items: center;
+}
+.refresh-btn:hover { background: var(--accent); border-color: var(--accent); }
+.refresh-btn .dot {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--good);
+}
+.refresh-btn.stale .dot { background: var(--bad); animation: pulse 2s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 
 /* Tabs */
 .tabs { display: flex; gap: 4px; background: var(--panel); border-bottom: 1px solid var(--border);
@@ -196,6 +207,10 @@ tr.closed-day td:first-child { border-left: 3px solid var(--bad); }
 <div class="topbar">
   <div class="title">🖨️ Print Production Dashboard</div>
   <div class="meta" id="meta">Loading…</div>
+  <button class="refresh-btn" id="refresh-btn" title="Refresh data">
+    <span class="dot"></span>
+    <span id="refresh-label">Refresh</span>
+  </button>
 </div>
 
 <div class="tabs" id="tabs">
@@ -492,9 +507,31 @@ tr.closed-day td:first-child { border-left: 3px solid var(--bad); }
   </div>
 </div>
 
+<!-- Modal for refresh -->
+<div class="backdrop" id="refresh-backdrop">
+  <div class="modal" style="max-width: 640px;">
+    <div class="modal-head">
+      <h3>Refresh data</h3>
+      <button class="x" id="refresh-modal-close">×</button>
+    </div>
+    <div class="modal-body" style="padding: 20px 24px;">
+      <p class="sub" id="refresh-status">…</p>
+      <div id="refresh-stale-warn" style="display:none; background: rgba(218,54,51,0.12); border: 1px solid rgba(218,54,51,0.4); border-radius: 6px; padding: 10px 14px; margin: 12px 0; color: var(--text);">
+        ⚠ Data is stale. Today's jobs aren't in the dashboard yet.
+      </div>
+      <h4 style="margin: 16px 0 6px; font-size: 13px; color: var(--muted); font-weight: 500;">Step 1 — Run this in your terminal:</h4>
+      <pre id="refresh-cmd" style="background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; font-size: 12px; line-height: 1.5; overflow-x: auto; user-select: all; cursor: text; margin: 0;">bash /tmp/refresh_printshop.sh</pre>
+      <p class="sub" style="margin-top: 8px;">Takes ~2 min. The script pulls from prod Frappe, rebuilds the bundle, and pushes to GitHub Pages. Watch it run with <code>tail -f /tmp/printshop_refresh.log</code>.</p>
+      <h4 style="margin: 20px 0 6px; font-size: 13px; color: var(--muted); font-weight: 500;">Step 2 — Reload the dashboard:</h4>
+      <button id="refresh-reload-btn" class="on" style="background: var(--accent); color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 13px;">Reload now</button>
+      <p class="sub" style="margin-top: 8px;">Hard-reloads the page with a fresh cache-bust query string so the new data.js is fetched.</p>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
-<script src="data.js?v=20261014b"></script>
+<script src="data.js?v=20261016a"></script>
 <script>
 (function() {
 'use strict';
@@ -588,6 +625,106 @@ function loadScript(src, cb) {
 
 // ---------- META ----------
 document.getElementById('meta').textContent = `${D.first_day} → ${D.last_day} · Mon–Thu 8–5 · Fri 8–12 · ${D.total_open_days} open days · ${D.total_sq_ft.toLocaleString(undefined, {maximumFractionDigits: 0})} sq ft total · ${D.total_reprint_jobs} reprints (${(D.total_reprint_sqft/D.total_sq_ft*100).toFixed(1)}% of film) · ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+
+// ====================================================================
+// REFRESH BUTTON
+// ====================================================================
+// "Stale" = the bundle's last_day is older than today, OR built_at > 1h ago.
+// Both conditions are checked; the user-facing label is human-friendly.
+const REFRESH_BTN = document.getElementById('refresh-btn');
+const REFRESH_LABEL = document.getElementById('refresh-label');
+const REFRESH_BACKDROP = document.getElementById('refresh-backdrop');
+const REFRESH_STATUS = document.getElementById('refresh-status');
+const REFRESH_STALE_WARN = document.getElementById('refresh-stale-warn');
+const REFRESH_RELOAD_BTN = document.getElementById('refresh-reload-btn');
+const REFRESH_MODAL_CLOSE = document.getElementById('refresh-modal-close');
+
+function ageString(ms) {
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + 'm';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + 'h';
+  const d = Math.floor(h / 24);
+  return d + 'd';
+}
+
+function computeRefreshState() {
+  const now = Date.now();
+  const today = new Date().toISOString().slice(0, 10);
+  const lastDay = D.last_day;
+  const dataIsStale = today > lastDay;  // last_day is yesterday or earlier
+  let builtMs = null;
+  let ageLabel = '';
+  if (D.built_at) {
+    builtMs = Date.parse(D.built_at);  // ISO string with Z
+    if (!isNaN(builtMs)) {
+      const ageMs = now - builtMs;
+      ageLabel = ageString(ageMs);
+    }
+  }
+  const oldBuild = builtMs !== null && (now - builtMs) > 60 * 60 * 1000;  // > 1 hour
+  return {dataIsStale, oldBuild, ageLabel, builtMs};
+}
+
+function updateRefreshButton() {
+  const s = computeRefreshState();
+  if (s.dataIsStale || s.oldBuild) {
+    REFRESH_BTN.classList.add('stale');
+  } else {
+    REFRESH_BTN.classList.remove('stale');
+  }
+  // Detailed label
+  if (s.dataIsStale) {
+    REFRESH_LABEL.textContent = `Refresh · ${D.last_day} data`;
+  } else if (s.ageLabel) {
+    REFRESH_LABEL.textContent = `Refresh · ${s.ageLabel} old`;
+  } else {
+    REFRESH_LABEL.textContent = 'Refresh';
+  }
+}
+
+function openRefreshModal() {
+  const s = computeRefreshState();
+  // Status line: when was the data last pulled, how stale is it
+  const builtStr = s.builtMs ? new Date(s.builtMs).toUTCString().replace(' GMT', ' UTC') : 'unknown';
+  const today = new Date().toISOString().slice(0, 10);
+  let line = `Last data pull: <b>${builtStr}</b>`;
+  if (s.ageLabel) line += ` (${s.ageLabel} ago)`;
+  line += `<br>Bundle covers through: <b>${D.last_day}</b>`;
+  if (s.dataIsStale) {
+    line += ` · Today is <b>${today}</b> (data is stale)`;
+  }
+  REFRESH_STATUS.innerHTML = line;
+  REFRESH_STALE_WARN.style.display = s.dataIsStale || s.oldBuild ? 'block' : 'none';
+  REFRESH_BACKDROP.classList.add('open');
+}
+
+function closeRefreshModal() {
+  REFRESH_BACKDROP.classList.remove('open');
+}
+
+function hardReload() {
+  // Force a fresh fetch of data.js with a new cache-bust query string
+  const url = new URL(window.location.href);
+  url.searchParams.set('v', Date.now().toString(36));
+  window.location.replace(url.toString());
+}
+
+// Wire up
+REFRESH_BTN.addEventListener('click', openRefreshModal);
+REFRESH_MODAL_CLOSE.addEventListener('click', closeRefreshModal);
+REFRESH_RELOAD_BTN.addEventListener('click', hardReload);
+REFRESH_BACKDROP.addEventListener('click', e => { if (e.target === REFRESH_BACKDROP) closeRefreshModal(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && REFRESH_BACKDROP.classList.contains('open')) closeRefreshModal();
+  // Also: Ctrl+R / Cmd+R is the user's existing keybind, no override needed
+});
+
+updateRefreshButton();
+// Update the label once a minute so "5m old" advances to "6m old" without reload
+setInterval(updateRefreshButton, 60 * 1000);
 
 // ====================================================================
 // TAB 1: DASHBOARD
