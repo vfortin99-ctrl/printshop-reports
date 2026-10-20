@@ -531,7 +531,7 @@ tr.closed-day td:first-child { border-left: 3px solid var(--bad); }
 
 <div class="toast" id="toast"></div>
 
-<script src="data.js?v=20261020b"></script>
+<script src="data.js?v=20261020c"></script>
 <script>
 (function() {
 'use strict';
@@ -1908,12 +1908,21 @@ function renderDays() {
 // ====================================================================
 let eventsLoaded = false;
 async function ensureEventsLoaded() {
-  if (eventsLoaded) return;
-  if (window.PRINT_EVENTS) { eventsLoaded = true; return; }
+  if (eventsLoaded && window.PRINT_EVENTS) return;
+  // Always (re-)fetch events.js with a cache-bust so a stale browser tab
+  // doesn't show empty/zero rows for newly-printed jobs. events.js changes
+  // every data refresh; using the same ?v= as data.js forces re-fetch.
+  const cb = (window.PRINT_DATA && window.PRINT_DATA.built_at)
+    ? new Date(window.PRINT_DATA.built_at).getTime()
+    : Date.now();
+  // Set the flag early to dedupe concurrent calls; the load itself is
+  // idempotent because the src includes the cache-bust.
+  eventsLoaded = true;
   await new Promise(resolve => {
     const s = document.createElement('script');
-    s.src = 'events.js';
-    s.onload = () => { eventsLoaded = true; resolve(); };
+    s.src = 'events.js?v=' + cb;
+    s.onload = () => resolve();
+    s.onerror = () => resolve(); // continue with whatever PRINT_EVENTS we have
     document.body.appendChild(s);
   });
 }
